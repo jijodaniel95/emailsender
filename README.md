@@ -2,6 +2,7 @@
 
 This Spring Boot application consumes messages from Google Pub/Sub and sends HTML emails using Gmail SMTP. It's designed for processing notifications, such as contact form submissions.
 
+
 ## Prerequisites
 - Java 17 or higher
 - Maven for dependency management
