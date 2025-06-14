@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><style>body{font-family:Arial}</style></head>
+<body>
+<h2>Mail Recieved on Website</h2>
+<p><strong>Name:</strong> <span th:text="${fullName}">Name</span></p>
+<p><strong>Email:</strong> <span th:text="${email}">Email</span></p>
+<p><strong>Subject:</strong> <span th:text="${subject}">Subject</span></p>
+<p><strong>Message:</strong></p>
+<p th:text="${message}">Message text</p>
+</body>
+</html>
