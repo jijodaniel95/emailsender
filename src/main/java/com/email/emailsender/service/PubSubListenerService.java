@@ -103,15 +103,16 @@ public class PubSubListenerService {
 
     /**
      * Scheduled task to pull messages every minute
+     * This will ensure we always try to pull messages, even after a shutdown
      */
     @Scheduled(fixedDelayString = "${pubsub.pull.interval-ms:60000}")
     public void pullMessages() {
-        if (isShuttingDown.get()) {
-            return;
-        }
+        // Reset shutdown flag to ensure we continue processing
+        isShuttingDown.set(false);
         
         try {
             if (subscriberStub == null) {
+                logger.info("Subscriber stub is null, initializing...");
                 initSubscriberStub();
             }
             
@@ -167,7 +168,8 @@ public class PubSubListenerService {
                 logger.debug("No messages available in subscription: {}", subscriptionName);
             }
         } catch (Exception e) {
-            logger.error("Error pulling messages", e);
+            logger.error("Error pulling messages, will recreate subscriber stub on next attempt", e);
+            closeAndRecreateStub();
         }
     }
     
@@ -192,6 +194,22 @@ public class PubSubListenerService {
     }
     
     /**
+     * Close and recreate the subscriber stub
+     */
+    private synchronized void closeAndRecreateStub() {
+        if (subscriberStub != null) {
+            try {
+                subscriberStub.close();
+                logger.info("Closed existing subscriber stub");
+            } catch (Exception e) {
+                logger.warn("Error closing subscriber stub", e);
+            } finally {
+                subscriberStub = null;
+            }
+        }
+    }
+    
+    /**
      * Check if the service is healthy
      */
     public boolean isHealthy() {
@@ -200,6 +218,7 @@ public class PubSubListenerService {
 
     /**
      * Gracefully shutdown the service
+     * Note: The scheduled task will restart the subscriber on the next run
      */
     @PreDestroy
     public void shutdown() {
