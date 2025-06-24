@@ -31,14 +31,13 @@ public class HealthController {
         status.put("pubsub", pubsubHealthy ? "UP" : "DOWN");
         
         if (!pubsubHealthy) {
-            // Try to restart the subscriber if it's not healthy
-            new Thread(() -> {
-                try {
-                    pubSubListenerService.pullMessages();
-                } catch (Exception e) {
-                    // Just log, don't affect the health check response
-                }
-            }).start();
+            // Try to trigger a pull immediately if Pub/Sub is not healthy
+            try {
+                pubSubListenerService.pullMessages();
+            } catch (Exception e) {
+                // Just log, don't affect the health check response
+                status.put("recovery_attempted", true);
+            }
         }
         
         return ResponseEntity.ok(status);

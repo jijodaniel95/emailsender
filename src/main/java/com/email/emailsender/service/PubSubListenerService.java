@@ -1,10 +1,7 @@
 package com.email.emailsender.service;
 
-import com.google.api.gax.core.CredentialsProvider;
 import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.auth.oauth2.GoogleCredentials;
-import com.google.cloud.pubsub.v1.AckReplyConsumer;
-import com.google.cloud.pubsub.v1.Subscriber;
 import com.google.cloud.pubsub.v1.stub.GrpcSubscriberStub;
 import com.google.cloud.pubsub.v1.stub.SubscriberStub;
 import com.google.cloud.pubsub.v1.stub.SubscriberStubSettings;
@@ -23,7 +20,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -49,7 +45,7 @@ public class PubSubListenerService {
     }
 
     /**
-     * Initialize the subscriber stub
+     * Initialize the subscriber stub with simple configuration
      */
     private synchronized void initSubscriberStub() {
         if (subscriberStub != null) {
@@ -60,15 +56,8 @@ public class PubSubListenerService {
             // Get credentials
             GoogleCredentials credentials = getCredentials();
             
-            // Create subscription name
-            ProjectSubscriptionName subscription = ProjectSubscriptionName.of(projectId, subscriptionName);
-
-            // Create subscriber stub settings
+            // Create subscriber stub settings with default configuration
             SubscriberStubSettings subscriberStubSettings = SubscriberStubSettings.newBuilder()
-                .setTransportChannelProvider(
-                    SubscriberStubSettings.defaultGrpcTransportProviderBuilder()
-                        .setMaxInboundMessageSize(20 * 1024 * 1024) // 20MB
-                        .build())
                 .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
                 .build();
 
@@ -102,10 +91,9 @@ public class PubSubListenerService {
     }
 
     /**
-     * Scheduled task to pull messages every minute
-     * This will ensure we always try to pull messages, even after a shutdown
+     * Scheduled task to pull messages every 30 seconds
      */
-    @Scheduled(fixedDelayString = "${pubsub.pull.interval-ms:60000}")
+    @Scheduled(fixedDelayString = "30000")
     public void pullMessages() {
         // Reset shutdown flag to ensure we continue processing
         isShuttingDown.set(false);
