@@ -1,21 +1,25 @@
 package com.email.emailsender;
 
-import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.integration.annotation.IntegrationComponentScan;
 import java.util.concurrent.CountDownLatch;
 
 @SpringBootApplication
-public class EmailsenderApplication implements CommandLineRunner {
+@IntegrationComponentScan
+public class EmailsenderApplication {
 
-	private final CountDownLatch latch = new CountDownLatch(1);
+	private static CountDownLatch latch = new CountDownLatch(1);
 
-	public static void main(String[] args) {
-		SpringApplication.run(EmailsenderApplication.class, args);
-	}
+	public static void main(String[] args) throws InterruptedException {
+		ConfigurableApplicationContext ctx = SpringApplication.run(EmailsenderApplication.class, args);
 
-	@Override
-	public void run(String... args) throws Exception {
-		latch.await(); // Keep the application running
+		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+			ctx.close();
+			latch.countDown();
+		}));
+
+		latch.await(); // Keep the app running until explicitly shutdown
 	}
 }

@@ -15,7 +15,6 @@ import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.config.EnableIntegration;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
-import org.springframework.integration.core.ErrorMessagePublisher;
 
 @EnableIntegration
 @Configuration
