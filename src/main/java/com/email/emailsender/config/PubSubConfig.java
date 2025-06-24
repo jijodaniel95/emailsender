@@ -15,6 +15,7 @@ import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.config.EnableIntegration;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
+import org.springframework.integration.core.ErrorMessagePublisher;
 
 @EnableIntegration
 @Configuration
@@ -31,8 +32,24 @@ public class PubSubConfig {
     }
 
     @Bean
+    public MessageChannel errorChannel() {
+        return new DirectChannel();
+    }
+
+    @Bean
+    @ServiceActivator(inputChannel = "errorChannel")
+    public MessageHandler errorHandler() {
+        return message -> {
+            logger.error("Error processing message: {}", message.getPayload());
+            Throwable error = (Throwable) message.getPayload();
+            logger.error("Error details:", error);
+        };
+    }
+
+    @Bean
     public PubSubInboundChannelAdapter messageChannelAdapter(
             @Qualifier("inputMessageChannel") MessageChannel inputChannel,
+            @Qualifier("errorChannel") MessageChannel errorChannel,
             PubSubSubscriberTemplate pubSubTemplate
     ) {
         logger.info("Initializing Pub/Sub adapter for subscription: {}", subscriptionName);
@@ -41,6 +58,7 @@ public class PubSubConfig {
                 new PubSubInboundChannelAdapter(pubSubTemplate, subscriptionName);
 
         adapter.setOutputChannel(inputChannel);
+        adapter.setErrorChannel(errorChannel);
         adapter.setAckMode(AckMode.AUTO);
         adapter.setPayloadType(String.class);
 
