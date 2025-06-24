@@ -19,23 +19,43 @@ public class EmailConsumer {
     }
 
     public void processMessage(String payload) {
-        log.info("Received message payload: {}", payload);
+        log.info("Processing message payload: {}", payload);
 
         try {
-            NotificationMessage msg = objectMapper.readValue(payload, NotificationMessage.class);
-            log.info("Successfully parsed message for sender: {}", msg.getSender());
+            // Parse the message
+            NotificationMessage msg;
+            try {
+                msg = objectMapper.readValue(payload, NotificationMessage.class);
+            } catch (Exception e) {
+                log.error("Failed to parse message payload: {}", payload, e);
+                throw new RuntimeException("Invalid message format", e);
+            }
+            
+            log.info("Successfully parsed message from: {}", msg.getSender());
 
-            emailService.sendHtmlEmail(
-                    msg.getSender(),
-                    msg.getSubject(),
-                    msg.getMessage(),
-                    msg.getFullName()
-            );
-            log.info("Email sent successfully to: {}", msg.getSender());
+            // Validate message fields
+            if (msg.getSender() == null || msg.getSender().isEmpty()) {
+                log.error("Message missing sender email: {}", payload);
+                throw new RuntimeException("Message missing sender email");
+            }
 
-        } catch (Exception e) {
-            log.error("Error processing email message: {}", payload, e);
-            throw new RuntimeException("Email processing failed", e); // triggers retry
+            // Send the email
+            try {
+                emailService.sendHtmlEmail(
+                        msg.getSender(),
+                        msg.getSubject(),
+                        msg.getMessage(),
+                        msg.getFullName()
+                );
+                log.info("Email sent successfully to: {}", msg.getSender());
+            } catch (Exception e) {
+                log.error("Failed to send email for message: {}", payload, e);
+                throw new RuntimeException("Email sending failed", e);
+            }
+
+        } catch (RuntimeException e) {
+            log.error("Error processing message: {}", e.getMessage(), e);
+            throw e; // Rethrow to trigger nack
         }
     }
 }
