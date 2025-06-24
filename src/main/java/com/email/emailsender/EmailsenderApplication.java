@@ -5,6 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.integration.annotation.IntegrationComponentScan;
 import org.springframework.retry.annotation.EnableRetry;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import java.util.concurrent.CountDownLatch;
 
@@ -12,6 +13,7 @@ import java.util.concurrent.CountDownLatch;
 @IntegrationComponentScan
 @EnableRetry
 @EnableScheduling
+@EnableAsync
 public class EmailsenderApplication {
 
 	private static CountDownLatch latch = new CountDownLatch(1);

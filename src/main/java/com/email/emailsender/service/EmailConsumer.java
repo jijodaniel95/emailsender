@@ -4,6 +4,7 @@ import com.email.emailsender.dto.NotificationMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -17,7 +18,7 @@ public class EmailConsumer {
     public EmailConsumer(EmailService emailService) {
         this.emailService = emailService;
     }
-
+@Async
     public void processMessage(String payload) {
         log.info("Processing message payload: {}", payload);
 
