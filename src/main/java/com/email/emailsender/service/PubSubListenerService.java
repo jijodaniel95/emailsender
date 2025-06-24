@@ -10,17 +10,24 @@ import com.google.cloud.spring.pubsub.core.PubSubTemplate;
 import com.google.cloud.spring.pubsub.support.AcknowledgeablePubsubMessage;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class PubSubListenerService {
     private static final Logger logger = LoggerFactory.getLogger(PubSubListenerService.class);
     private static final int MAX_MESSAGES_PER_PULL = 10;
+    
+    // Add a counter to track execution times
+    private final AtomicLong lastExecutionTime = new AtomicLong(0);
 
     private final EmailConsumer emailConsumer;
     private final PubSubTemplate pubSubTemplate;
 
     @Value("${pubsub.subscription.name}")
     private String subscriptionName;
+    
+    @Value("${pubsub.pull.interval-ms:15000}")
+    private long pullIntervalMs;
 
     public PubSubListenerService(EmailConsumer emailConsumer, PubSubTemplate pubSubTemplate) {
         this.emailConsumer = emailConsumer;
@@ -28,10 +35,18 @@ public class PubSubListenerService {
     }
 
     /**
-     * Pull messages every 15 seconds
+     * Pull messages at the configured interval
+     * Using fixedDelayString to read from properties and ensure only one execution at a time
      */
-    @Scheduled(fixedRate = 15000)
+    @Scheduled(fixedDelayString = "${pubsub.pull.interval-ms:15000}")
     public void pullMessages() {
+        long now = System.currentTimeMillis();
+        long last = lastExecutionTime.getAndSet(now);
+        
+        if (last > 0) {
+            logger.debug("Time since last execution: {} ms (target: {} ms)", now - last, pullIntervalMs);
+        }
+        
         logger.info("Pulling messages from subscription: {}", subscriptionName);
 
         // Synchronously pull messages, with a maximum of 10 messages per pull
@@ -44,31 +59,15 @@ public class PubSubListenerService {
 
         logger.info("Received {} message(s).", messages.size());
 
-        try {
-            for (AcknowledgeablePubsubMessage message : messages) {
-                PubsubMessage pubsubMessage = message.getPubsubMessage();
-                String messageId = pubsubMessage.getMessageId();
-                String payload = pubsubMessage.getData().toStringUtf8();
-                
-                logger.info("Processing message ID: {}", messageId);
-                
-                try {
-                    // Process message
-                    emailConsumer.processMessage(payload);
-                    
-                    // Acknowledge successful processing
-                    message.ack();
-                    logger.info("Successfully processed and acknowledged message: {}", messageId);
-                } catch (Exception e) {
-                    // Nack the message on processing failure so it can be retried
-                    message.nack();
-                    logger.error("Error processing message: {}. Error: {}", messageId, e.getMessage(), e);
-                }
-            }
-        } catch (Exception e) {
-            // If we hit an error processing the batch, nack all messages
-            logger.error("Error processing message batch, nacking all messages", e);
-            messages.forEach(AcknowledgeablePubsubMessage::nack);
+        // Process each message asynchronously
+        for (AcknowledgeablePubsubMessage message : messages) {
+            PubsubMessage pubsubMessage = message.getPubsubMessage();
+            String messageId = pubsubMessage.getMessageId();
+            
+            logger.info("Dispatching message ID: {} for async processing", messageId);
+            
+            // Process message asynchronously - acknowledgment will be handled in the async method
+            emailConsumer.processMessageAsync(message);
         }
     }
 
