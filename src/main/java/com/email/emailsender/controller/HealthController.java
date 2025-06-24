@@ -34,7 +34,7 @@ public class HealthController {
             // Try to restart the subscriber if it's not healthy
             new Thread(() -> {
                 try {
-                    pubSubListenerService.restartSubscriber();
+                    pubSubListenerService.startSubscriber();
                 } catch (Exception e) {
                     // Just log, don't affect the health check response
                 }
