@@ -18,7 +18,7 @@ public class EmailConsumer {
     public EmailConsumer(EmailService emailService) {
         this.emailService = emailService;
     }
-@Async
+//@Async
     public void processMessage(String payload) {
         log.info("Processing message payload: {}", payload);
 
