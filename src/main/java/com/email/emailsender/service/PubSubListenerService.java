@@ -15,9 +15,10 @@ import com.google.pubsub.v1.PubsubMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -32,6 +33,7 @@ public class PubSubListenerService {
     private final EmailConsumer emailConsumer;
     private Subscriber subscriber;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
+    private final AtomicBoolean isInitialized = new AtomicBoolean(false);
 
     @Value("${spring.cloud.gcp.project-id}")
     private String projectId;
@@ -50,6 +52,9 @@ public class PubSubListenerService {
     
     @Value("${pubsub.flow-control.max-outstanding-request-bytes:100000000}")
     private long maxOutstandingRequestBytes;
+    
+    @Value("${pubsub.subscriber.await-running-timeout:30}")
+    private int awaitRunningTimeoutSeconds;
 
     public PubSubListenerService(EmailConsumer emailConsumer) {
         this.emailConsumer = emailConsumer;
@@ -132,11 +137,27 @@ public class PubSubListenerService {
     }
 
     /**
+     * Initialize and start the Pub/Sub subscriber after the application is fully started
+     * This ensures that Cloud Run has properly initialized before we start consuming messages
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void onApplicationReady() {
+        logger.info("Application is ready, initializing Pub/Sub subscriber");
+        startSubscriber();
+    }
+
+    /**
      * Initialize and start the Pub/Sub subscriber
      */
-    @PostConstruct
-    public void startSubscriber() {
+    public synchronized void startSubscriber() {
+        if (isInitialized.get()) {
+            logger.info("Subscriber is already initialized, skipping initialization");
+            return;
+        }
+        
         try {
+            logger.info("Starting Pub/Sub subscriber for project: {}, subscription: {}", projectId, subscriptionName);
+            
             // Get credentials provider
             CredentialsProvider credentialsProvider = getCredentialsProvider();
             
@@ -187,16 +208,28 @@ public class PubSubListenerService {
                     
                     @Override
                     public void running() {
-                        logger.info("Subscriber is now running");
+                        logger.info("Subscriber is now running and ready to receive messages");
                         isRunning.set(true);
                     }
                 },
                 command -> command.run()
             );
 
-            // Start the subscriber
+            // Start the subscriber and wait for it to be running
+            logger.info("Starting subscriber async for subscription: {}", subscriptionName);
             subscriber.startAsync();
-            logger.info("Subscriber started for subscription: {}", subscriptionName);
+            
+            // Wait for the subscriber to be running
+            try {
+                logger.info("Waiting for subscriber to transition to RUNNING state");
+                subscriber.awaitRunning(awaitRunningTimeoutSeconds, TimeUnit.SECONDS);
+                logger.info("Subscriber is now in RUNNING state and actively pulling messages");
+            } catch (TimeoutException e) {
+                logger.error("Subscriber did not transition to RUNNING state within timeout", e);
+            }
+            
+            isInitialized.set(true);
+            logger.info("Pub/Sub subscriber initialization completed");
         } catch (Exception e) {
             logger.error("Failed to create subscriber", e);
             throw new RuntimeException("Failed to initialize Pub/Sub subscriber", e);
@@ -218,6 +251,7 @@ public class PubSubListenerService {
         if (subscriber != null) {
             try {
                 subscriber.stopAsync().awaitTerminated(5, TimeUnit.SECONDS);
+                isInitialized.set(false);
             } catch (Exception e) {
                 logger.warn("Error stopping existing subscriber during restart", e);
             }
@@ -225,6 +259,17 @@ public class PubSubListenerService {
         
         // Start a new subscriber
         startSubscriber();
+    }
+    
+    /**
+     * Check if the subscriber is healthy
+     */
+    public boolean isHealthy() {
+        if (subscriber == null) {
+            return false;
+        }
+        
+        return isRunning.get() && subscriber.isRunning();
     }
 
     /**
@@ -243,6 +288,7 @@ public class PubSubListenerService {
                 logger.error("Error while stopping subscriber", e);
             } finally {
                 isRunning.set(false);
+                isInitialized.set(false);
             }
         }
     }
