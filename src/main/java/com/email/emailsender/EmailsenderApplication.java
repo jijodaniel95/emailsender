@@ -4,10 +4,12 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.integration.annotation.IntegrationComponentScan;
+import org.springframework.retry.annotation.EnableRetry;
 import java.util.concurrent.CountDownLatch;
 
 @SpringBootApplication
 @IntegrationComponentScan
+@EnableRetry
 public class EmailsenderApplication {
 
 	private static CountDownLatch latch = new CountDownLatch(1);
