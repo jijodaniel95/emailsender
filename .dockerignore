@@ -1,0 +1,10 @@
+# Ignore common files and directories
+**/.git
+**/.idea
+**/target
+**/.gitignore
+HELP.md
+*.log
+
+target/
+!.mvn  # Ensure .mvn is not ignored 
