@@ -1,6 +1,9 @@
 package com.email.emailsender.service;
 
 import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.api.gax.rpc.ApiException;
+import com.google.api.gax.rpc.FixedTransportChannelProvider;
+import com.google.api.gax.rpc.TransportChannelProvider;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.pubsub.v1.stub.GrpcSubscriberStub;
 import com.google.cloud.pubsub.v1.stub.SubscriberStub;
@@ -9,27 +12,33 @@ import com.google.pubsub.v1.ProjectSubscriptionName;
 import com.google.pubsub.v1.PullRequest;
 import com.google.pubsub.v1.PullResponse;
 import com.google.pubsub.v1.ReceivedMessage;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.threeten.bp.Duration;
 
 import javax.annotation.PreDestroy;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class PubSubListenerService {
     private static final Logger logger = LoggerFactory.getLogger(PubSubListenerService.class);
     private static final int MAX_MESSAGES_PER_PULL = 10;
+    private static final int TIMEOUT_SECONDS = 10;
 
     private final EmailConsumer emailConsumer;
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
     private SubscriberStub subscriberStub;
+    private ManagedChannel channel;
 
     @Value("${spring.cloud.gcp.project-id}")
     private String projectId;
@@ -45,7 +54,7 @@ public class PubSubListenerService {
     }
 
     /**
-     * Initialize the subscriber stub with simple configuration
+     * Initialize the subscriber stub with explicit timeouts
      */
     private synchronized void initSubscriberStub() {
         if (subscriberStub != null) {
@@ -56,16 +65,29 @@ public class PubSubListenerService {
             // Get credentials
             GoogleCredentials credentials = getCredentials();
             
-            // Create subscriber stub settings with default configuration
+            // Create a channel with explicit timeouts
+            channel = ManagedChannelBuilder.forTarget("pubsub.googleapis.com:443")
+                .keepAliveTime(30, TimeUnit.SECONDS)
+                .keepAliveTimeout(10, TimeUnit.SECONDS)
+                .keepAliveWithoutCalls(true)
+                .build();
+            
+            // Create a channel provider
+            TransportChannelProvider channelProvider = 
+                FixedTransportChannelProvider.create(
+                    com.google.api.gax.grpc.GrpcTransportChannel.create(channel));
+            
+            // Create subscriber stub settings with explicit timeouts
             SubscriberStubSettings subscriberStubSettings = SubscriberStubSettings.newBuilder()
+                .setTransportChannelProvider(channelProvider)
                 .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
                 .build();
 
             // Create subscriber stub
             subscriberStub = GrpcSubscriberStub.create(subscriberStubSettings);
             
-            logger.info("Initialized subscriber stub for project: {}, subscription: {}", 
-                    projectId, subscriptionName);
+            logger.info("Initialized subscriber stub for project: {}, subscription: {} with {} second timeout", 
+                    projectId, subscriptionName, TIMEOUT_SECONDS);
         } catch (IOException e) {
             logger.error("Failed to initialize subscriber stub", e);
         }
@@ -118,9 +140,21 @@ public class PubSubListenerService {
                 .setSubscription(subscription.toString())
                 .build();
             
-            // Pull messages
+            // Pull messages with timeout
             logger.info("Pulling messages from subscription: {}", subscriptionName);
-            PullResponse pullResponse = subscriberStub.pullCallable().call(pullRequest);
+            PullResponse pullResponse;
+            try {
+                pullResponse = subscriberStub.pullCallable().call(pullRequest);
+            } catch (ApiException e) {
+                if (e.isRetryable()) {
+                    logger.warn("Retryable error during pull, will try again next cycle: {}", e.getMessage());
+                } else {
+                    logger.error("Error pulling messages: {}", e.getMessage());
+                    closeAndRecreateStub();
+                }
+                return;
+            }
+            
             List<String> ackIds = new ArrayList<>();
             
             // Process messages
@@ -195,13 +229,27 @@ public class PubSubListenerService {
                 subscriberStub = null;
             }
         }
+        
+        if (channel != null) {
+            try {
+                channel.shutdown();
+                if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
+                    channel.shutdownNow();
+                }
+                logger.info("Closed gRPC channel");
+            } catch (Exception e) {
+                logger.warn("Error closing gRPC channel", e);
+            } finally {
+                channel = null;
+            }
+        }
     }
     
     /**
      * Check if the service is healthy
      */
     public boolean isHealthy() {
-        return subscriberStub != null;
+        return subscriberStub != null && (channel == null || !channel.isShutdown());
     }
 
     /**
@@ -211,16 +259,6 @@ public class PubSubListenerService {
     @PreDestroy
     public void shutdown() {
         isShuttingDown.set(true);
-        
-        if (subscriberStub != null) {
-            try {
-                logger.info("Shutting down subscriber stub...");
-                subscriberStub.close();
-                subscriberStub = null;
-                logger.info("Subscriber stub shutdown successfully");
-            } catch (Exception e) {
-                logger.error("Error shutting down subscriber stub", e);
-            }
-        }
+        closeAndRecreateStub();
     }
 } 
