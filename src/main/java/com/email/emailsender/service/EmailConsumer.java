@@ -1,6 +1,5 @@
 package com.email.emailsender.service;
 
-
 import com.email.emailsender.dto.NotificationMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
