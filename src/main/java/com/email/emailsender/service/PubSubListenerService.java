@@ -4,6 +4,7 @@ import com.google.pubsub.v1.PubsubMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import com.google.cloud.spring.pubsub.core.PubSubTemplate;
@@ -22,6 +23,7 @@ public class PubSubListenerService {
 
     private final EmailConsumer emailConsumer;
     private final PubSubTemplate pubSubTemplate;
+    private final MailgunEmailConsumer mailgunEmailConsumer;
 
     @Value("${pubsub.subscription.name}")
     private String subscriptionName;
@@ -29,9 +31,16 @@ public class PubSubListenerService {
     @Value("${pubsub.pull.interval-ms:15000}")
     private long pullIntervalMs;
 
-    public PubSubListenerService(EmailConsumer emailConsumer, PubSubTemplate pubSubTemplate) {
+    public PubSubListenerService(EmailConsumer emailConsumer, 
+                                PubSubTemplate pubSubTemplate,
+                                @org.springframework.beans.factory.annotation.Autowired(required = false) 
+                                MailgunEmailConsumer mailgunEmailConsumer) {
         this.emailConsumer = emailConsumer;
         this.pubSubTemplate = pubSubTemplate;
+        this.mailgunEmailConsumer = mailgunEmailConsumer;
+        
+        logger.info("Initialized PubSubListenerService with {} email consumer",
+                mailgunEmailConsumer != null ? "Mailgun" : "standard");
     }
 
     /**
@@ -66,8 +75,12 @@ public class PubSubListenerService {
             
             logger.info("Dispatching message ID: {} for async processing", messageId);
             
-            // Process message asynchronously - acknowledgment will be handled in the async method
-            emailConsumer.processMessageAsync(message);
+            // Use Mailgun consumer if available, otherwise fall back to standard consumer
+            if (mailgunEmailConsumer != null) {
+                mailgunEmailConsumer.processMessageAsync(message);
+            } else {
+                emailConsumer.processMessageAsync(message);
+            }
         }
     }
 
