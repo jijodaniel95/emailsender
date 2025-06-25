@@ -1,6 +1,7 @@
 package com.email.emailsender.controller;
 
 import com.email.emailsender.service.PubSubListenerService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -13,6 +14,7 @@ public class HealthController {
     
     private final PubSubListenerService pubSubListenerService;
     
+    @Autowired
     public HealthController(PubSubListenerService pubSubListenerService) {
         this.pubSubListenerService = pubSubListenerService;
     }
@@ -23,23 +25,22 @@ public class HealthController {
     }
 
     @GetMapping("/health")
-    public ResponseEntity<Map<String, Object>> health() {
-        Map<String, Object> status = new HashMap<>();
-        status.put("status", "UP");
-        
-        boolean pubsubHealthy = pubSubListenerService.isHealthy();
-        status.put("pubsub", pubsubHealthy ? "UP" : "DOWN");
-        
-        if (!pubsubHealthy) {
-            // Try to trigger a pull immediately if Pub/Sub is not healthy
-            try {
-                pubSubListenerService.pullMessages();
-            } catch (Exception e) {
-                // Just log, don't affect the health check response
-                status.put("recovery_attempted", true);
-            }
+    public ResponseEntity<String> health() {
+        boolean isHealthy = pubSubListenerService.isHealthy();
+        if (isHealthy) {
+            return ResponseEntity.ok("Service is healthy");
+        } else {
+            return ResponseEntity.status(503).body("Service is unhealthy");
         }
-        
-        return ResponseEntity.ok(status);
+    }
+    
+    @GetMapping("/trigger-pull")
+    public ResponseEntity<String> triggerPull() {
+        try {
+            pubSubListenerService.pullMessages();
+            return ResponseEntity.ok("PubSub pull triggered successfully");
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error triggering PubSub pull: " + e.getMessage());
+        }
     }
 }

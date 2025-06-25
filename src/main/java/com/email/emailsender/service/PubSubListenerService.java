@@ -11,6 +11,7 @@ import com.google.cloud.spring.pubsub.support.AcknowledgeablePubsubMessage;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.annotation.PostConstruct;
 
 @Service
 public class PubSubListenerService {
@@ -27,7 +28,7 @@ public class PubSubListenerService {
     @Value("${pubsub.subscription.name}")
     private String subscriptionName;
     
-    @Value("${pubsub.pull.interval-ms:15000}")
+    @Value("${pubsub.pull.interval-ms:900000}")
     private long pullIntervalMs;
 
     public PubSubListenerService(EmailConsumer emailConsumer, 
@@ -41,18 +42,25 @@ public class PubSubListenerService {
         logger.info("Initialized PubSubListenerService with {} email consumer",
                 mailgunEmailConsumer != null ? "Mailgun" : "standard");
     }
+    
+    @PostConstruct
+    public void init() {
+        logger.info("PubSubListenerService initialized with pull interval: {} ms", pullIntervalMs);
+    }
 
     /**
      * Pull messages at the configured interval
      * Using fixedDelayString to read from properties and ensure only one execution at a time
      */
-    @Scheduled(fixedDelayString = "${pubsub.pull.interval-ms:15000}")
+    @Scheduled(fixedDelayString = "${pubsub.pull.interval-ms:900000}")
     public void pullMessages() {
         long now = System.currentTimeMillis();
         long last = lastExecutionTime.getAndSet(now);
         
         if (last > 0) {
-            logger.debug("Time since last execution: {} ms (target: {} ms)", now - last, pullIntervalMs);
+            logger.info("Time since last execution: {} ms (target: {} ms)", now - last, pullIntervalMs);
+        } else {
+            logger.info("First execution of scheduled pull at: {}", now);
         }
         
         logger.info("Pulling messages from subscription: {}", subscriptionName);
