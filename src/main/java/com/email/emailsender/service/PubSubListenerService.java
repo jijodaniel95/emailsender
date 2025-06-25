@@ -4,7 +4,6 @@ import com.google.pubsub.v1.PubsubMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import com.google.cloud.spring.pubsub.core.PubSubTemplate;
@@ -58,8 +57,14 @@ public class PubSubListenerService {
         
         logger.info("Pulling messages from subscription: {}", subscriptionName);
 
-        // Synchronously pull messages, with a maximum of 10 messages per pull
-        List<AcknowledgeablePubsubMessage> messages = pubSubTemplate.pull(subscriptionName, MAX_MESSAGES_PER_PULL, true);
+        List<AcknowledgeablePubsubMessage> messages;
+        try {
+            // Synchronously pull messages, with a maximum of 10 messages per pull
+            messages = pubSubTemplate.pull(subscriptionName, MAX_MESSAGES_PER_PULL, true);
+        } catch (Exception e) {
+            logger.error("Error pulling messages from subscription: {}", e.getMessage(), e);
+            return;
+        }
 
         if (messages.isEmpty()) {
             logger.debug("No messages found in the subscription.");
@@ -68,18 +73,31 @@ public class PubSubListenerService {
 
         logger.info("Received {} message(s).", messages.size());
 
-        // Process each message asynchronously
+        // Process each message
         for (AcknowledgeablePubsubMessage message : messages) {
             PubsubMessage pubsubMessage = message.getPubsubMessage();
             String messageId = pubsubMessage.getMessageId();
             
-            logger.info("Dispatching message ID: {} for async processing", messageId);
+            logger.info("Processing message ID: {}", messageId);
             
             // Use Mailgun consumer if available, otherwise fall back to standard consumer
-            if (mailgunEmailConsumer != null) {
-                mailgunEmailConsumer.processMessageAsync(message);
-            } else {
-                emailConsumer.processMessageAsync(message);
+            try {
+                if (mailgunEmailConsumer != null) {
+                    logger.info("Using Mailgun consumer for message: {}", messageId);
+                    mailgunEmailConsumer.processMessageAsync(message);
+                } else {
+                    logger.info("Using standard consumer for message: {}", messageId);
+                    emailConsumer.processMessageAsync(message);
+                }
+            } catch (Exception e) {
+                logger.error("Error dispatching message: {}. Error: {}", messageId, e.getMessage(), e);
+                try {
+                    message.nack();
+                    logger.info("Message nacked due to dispatch error: {}", messageId);
+                } catch (Exception nackEx) {
+                    logger.error("Failed to nack message: {}. Error: {}", 
+                            messageId, nackEx.getMessage(), nackEx);
+                }
             }
         }
     }

@@ -6,7 +6,6 @@ import com.google.cloud.spring.pubsub.support.AcknowledgeablePubsubMessage;
 import com.google.pubsub.v1.PubsubMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -21,14 +20,12 @@ public class EmailConsumer {
         this.emailService = emailService;
     }
 
-    //@Async
     public void processMessageAsync(AcknowledgeablePubsubMessage message) {
         PubsubMessage pubsubMessage = message.getPubsubMessage();
         String messageId = pubsubMessage.getMessageId();
         String payload = pubsubMessage.getData().toStringUtf8();
         
-        log.info("Asynchronously processing message ID: {} in thread: {}", 
-                messageId, Thread.currentThread().getName());
+        log.info("Processing message ID: {} with standard email service", messageId);
 
         try {
             // Parse the message
@@ -37,7 +34,13 @@ public class EmailConsumer {
                 msg = objectMapper.readValue(payload, NotificationMessage.class);
             } catch (Exception e) {
                 log.error("Failed to parse message payload: {}", payload, e);
-                message.nack();
+                try {
+                    message.nack();
+                    log.info("Message nacked due to parsing error: {}", messageId);
+                } catch (Exception nackEx) {
+                    log.error("Failed to nack message: {}. Error: {}", 
+                            messageId, nackEx.getMessage(), nackEx);
+                }
                 return;
             }
             
@@ -46,7 +49,13 @@ public class EmailConsumer {
             // Validate message fields
             if (msg.getSender() == null || msg.getSender().isEmpty()) {
                 log.error("Message missing sender email: {}", payload);
-                message.nack();
+                try {
+                    message.nack();
+                    log.info("Message nacked due to missing sender: {}", messageId);
+                } catch (Exception nackEx) {
+                    log.error("Failed to nack message: {}. Error: {}", 
+                            messageId, nackEx.getMessage(), nackEx);
+                }
                 return;
             }
 
@@ -59,18 +68,35 @@ public class EmailConsumer {
                         msg.getFullName()
                 );
                 log.info("Email sent successfully to: {}", msg.getSender());
-                message.ack();
-                log.info("Successfully processed and acknowledged message: {}", messageId);
+                
+                // Explicitly acknowledge the message
+                try {
+                    message.ack();
+                    log.info("Successfully acknowledged message: {}", messageId);
+                } catch (Exception ackEx) {
+                    log.error("Failed to acknowledge message: {}. Error: {}", 
+                            messageId, ackEx.getMessage(), ackEx);
+                }
             } catch (Exception e) {
-                log.error("Failed to send email for message: {}", payload, e);
-                message.nack();
-                log.error("Nacked message due to email sending failure: {}", messageId);
+                log.error("Failed to send email: {}", e.getMessage(), e);
+                try {
+                    message.nack();
+                    log.info("Message nacked due to email sending failure: {}", messageId);
+                } catch (Exception nackEx) {
+                    log.error("Failed to nack message: {}. Error: {}", 
+                            messageId, nackEx.getMessage(), nackEx);
+                }
             }
 
         } catch (RuntimeException e) {
             log.error("Error processing message: {}", e.getMessage(), e);
-            message.nack();
-            log.error("Nacked message due to processing error: {}", messageId);
+            try {
+                message.nack();
+                log.info("Message nacked due to processing error: {}", messageId);
+            } catch (Exception nackEx) {
+                log.error("Failed to nack message: {}. Error: {}", 
+                        messageId, nackEx.getMessage(), nackEx);
+            }
         }
     }
     
@@ -106,7 +132,7 @@ public class EmailConsumer {
                 );
                 log.info("Email sent successfully to: {}", msg.getSender());
             } catch (Exception e) {
-                log.error("Failed to send email for message: {}", payload, e);
+                log.error("Failed to send email: {}", e.getMessage(), e);
                 throw new RuntimeException("Email sending failed", e);
             }
 

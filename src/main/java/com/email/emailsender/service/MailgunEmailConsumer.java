@@ -7,7 +7,6 @@ import com.google.pubsub.v1.PubsubMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -24,13 +23,12 @@ public class MailgunEmailConsumer {
         log.info("Initialized Mailgun Email Consumer");
     }
 
-    //@Async
     public void processMessageAsync(AcknowledgeablePubsubMessage message) {
         PubsubMessage pubsubMessage = message.getPubsubMessage();
         String messageId = pubsubMessage.getMessageId();
         String payload = pubsubMessage.getData().toStringUtf8();
         
-        log.info("Asynchronously processing message ID: {} with Mailgun", messageId);
+        log.info("Processing message ID: {} with Mailgun", messageId);
 
         try {
             // Parse the message
@@ -40,6 +38,7 @@ public class MailgunEmailConsumer {
             } catch (Exception e) {
                 log.error("Failed to parse message payload: {}", payload, e);
                 message.nack();
+                log.info("Message nacked due to parsing error: {}", messageId);
                 return;
             }
             
@@ -49,6 +48,7 @@ public class MailgunEmailConsumer {
             if (msg.getSender() == null || msg.getSender().isEmpty()) {
                 log.error("Message missing sender email: {}", payload);
                 message.nack();
+                log.info("Message nacked due to missing sender: {}", messageId);
                 return;
             }
 
@@ -61,18 +61,35 @@ public class MailgunEmailConsumer {
                         msg.getFullName()
                 );
                 log.info("Email sent successfully via Mailgun to: {}", msg.getSender());
-                message.ack();
-                log.info("Successfully processed and acknowledged message: {}", messageId);
+                
+                // Explicitly acknowledge the message
+                try {
+                    message.ack();
+                    log.info("Successfully acknowledged message: {}", messageId);
+                } catch (Exception ackEx) {
+                    log.error("Failed to acknowledge message: {}. Error: {}", 
+                            messageId, ackEx.getMessage(), ackEx);
+                }
             } catch (Exception e) {
                 log.error("Failed to send email via Mailgun: {}", e.getMessage(), e);
-                message.nack();
-                log.error("Nacked message due to email sending failure: {}", messageId);
+                try {
+                    message.nack();
+                    log.info("Message nacked due to email sending failure: {}", messageId);
+                } catch (Exception nackEx) {
+                    log.error("Failed to nack message: {}. Error: {}", 
+                            messageId, nackEx.getMessage(), nackEx);
+                }
             }
 
         } catch (RuntimeException e) {
             log.error("Error processing message: {}", e.getMessage(), e);
-            message.nack();
-            log.error("Nacked message due to processing error: {}", messageId);
+            try {
+                message.nack();
+                log.info("Message nacked due to processing error: {}", messageId);
+            } catch (Exception nackEx) {
+                log.error("Failed to nack message: {}. Error: {}", 
+                        messageId, nackEx.getMessage(), nackEx);
+            }
         }
     }
 } 
