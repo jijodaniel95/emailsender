@@ -24,7 +24,7 @@ public class MailgunEmailConsumer {
         log.info("Initialized Mailgun Email Consumer");
     }
 
-    @Async
+    //@Async
     public void processMessageAsync(AcknowledgeablePubsubMessage message) {
         PubsubMessage pubsubMessage = message.getPubsubMessage();
         String messageId = pubsubMessage.getMessageId();

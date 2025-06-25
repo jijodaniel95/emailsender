@@ -21,7 +21,7 @@ public class EmailConsumer {
         this.emailService = emailService;
     }
 
-    @Async
+    //@Async
     public void processMessageAsync(AcknowledgeablePubsubMessage message) {
         PubsubMessage pubsubMessage = message.getPubsubMessage();
         String messageId = pubsubMessage.getMessageId();
